@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Cryptography;
+using System;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -15,37 +16,27 @@ namespace WebSocketConsoleClient
 
             using (ClientWebSocket socket = new ClientWebSocket())
             {
-                try
+                await socket.ConnectAsync(new Uri("ws://localhost:5000/"), CancellationToken.None);
+                Console.WriteLine("Connected to the server.");
+
+                await SendMessage(socket, username);
+
+                Console.WriteLine("Type 'create' to create a channel or 'join <invite-key>' to join one:");
+                string command = Console.ReadLine();
+                await SendMessage(socket, command);
+
+                var receivingTask = ReceiveMessages(socket);
+
+                while (socket.State == WebSocketState.Open)
                 {
-                    await socket.ConnectAsync(new Uri("ws://localhost:5000/"), CancellationToken.None);
-                    Console.WriteLine("Connected to the server.");
-
-                    // Send the username to the server
-                    await SendMessage(socket, $"USERNAME:{username}");
-
-                    Console.WriteLine("Type 'create' to create a channel or 'join <invite-key>' to join one:");
-                    string command = Console.ReadLine();
-
-                    await SendMessage(socket, command);
-
-                    // Start receiving messages in a separate task
-                    var receivingTask = ReceiveMessages(socket);
-
-                    while (socket.State == WebSocketState.Open)
+                    string messageToSend = Console.ReadLine();
+                    if (!string.IsNullOrWhiteSpace(messageToSend))
                     {
-                        string messageToSend = Console.ReadLine();
-                        if (!string.IsNullOrWhiteSpace(messageToSend))
-                        {
-                            await SendMessage(socket, messageToSend);
-                        }
+                        await SendMessage(socket, messageToSend);
                     }
+                }
 
-                    await receivingTask; // Await the receiving task to complete before exiting
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error: {ex.Message}");
-                }
+                await receivingTask;
             }
 
             Console.WriteLine("Connection closed.");
@@ -53,8 +44,22 @@ namespace WebSocketConsoleClient
 
         static async Task SendMessage(ClientWebSocket socket, string message)
         {
-            byte[] buffer = Encoding.UTF8.GetBytes(message);
-            await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+            try
+            {
+                if (string.IsNullOrWhiteSpace(message))
+                {
+                    Console.WriteLine("[Error] Cannot send an empty message.");
+                    return;
+                }
+
+                byte[] encryptedMessage = AesHelper.Encrypt(message);
+                //Console.WriteLine($"1: {message} -- 2: {encryptedMessage} -- 3: {AesHelper.Decrypt(encryptedMessage)}");
+                await socket.SendAsync(new ArraySegment<byte>(encryptedMessage), WebSocketMessageType.Binary, true, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Error] Failed to send message: {ex.Message}");
+            }
         }
 
         static async Task ReceiveMessages(ClientWebSocket socket)
@@ -64,18 +69,7 @@ namespace WebSocketConsoleClient
             while (socket.State == WebSocketState.Open)
             {
                 var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    Console.WriteLine("Server closed the connection.");
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Goodbye", CancellationToken.None);
-                    break;
-                }
-                else
-                {
-                    string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    Console.WriteLine(message);
-                }
+                Console.WriteLine(AesHelper.Decrypt(buffer[..result.Count]));
             }
         }
     }

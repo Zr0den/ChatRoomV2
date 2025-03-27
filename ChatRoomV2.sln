@@ -1,11 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35806.99 d17.13
+VisualStudioVersion = 17.13.35806.99
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatRoomServer", "ChatRoomServer\ChatRoomServer.csproj", "{B2C42C63-0537-45B2-B62F-1F8F0F1AEB16}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChatRoomServer", "ChatRoomServer\ChatRoomServer.csproj", "{B2C42C63-0537-45B2-B62F-1F8F0F1AEB16}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatRoomClient", "ChatRoomClient\ChatRoomClient.csproj", "{BA3B2574-4B0D-4EB1-BC00-20E353396D26}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChatRoomClient", "ChatRoomClient\ChatRoomClient.csproj", "{BA3B2574-4B0D-4EB1-BC00-20E353396D26}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cryptography", "Cryptography\Cryptography.csproj", "{3B5C58AF-7074-412C-B042-F8AE30F1DD09}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{BA3B2574-4B0D-4EB1-BC00-20E353396D26}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BA3B2574-4B0D-4EB1-BC00-20E353396D26}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BA3B2574-4B0D-4EB1-BC00-20E353396D26}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B5C58AF-7074-412C-B042-F8AE30F1DD09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B5C58AF-7074-412C-B042-F8AE30F1DD09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B5C58AF-7074-412C-B042-F8AE30F1DD09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B5C58AF-7074-412C-B042-F8AE30F1DD09}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
