@@ -54,6 +54,7 @@ namespace WebSocketConsoleClient
 
                 byte[] encryptedMessage = AesHelper.Encrypt(message);
                 //Console.WriteLine($"1: {message} -- 2: {encryptedMessage} -- 3: {AesHelper.Decrypt(encryptedMessage)}");
+                Console.WriteLine($"--- Sending encrypted message: {Encoding.Default.GetString(encryptedMessage)} --- ");
                 await socket.SendAsync(new ArraySegment<byte>(encryptedMessage), WebSocketMessageType.Binary, true, CancellationToken.None);
             }
             catch (Exception ex)

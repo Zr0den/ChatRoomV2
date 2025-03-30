@@ -167,6 +167,7 @@ class Program
     static async Task SendMessage(WebSocket socket, string message)
     {
         byte[] encryptedMessage = AesHelper.Encrypt(message);
+        Console.WriteLine($"--- Sending encrypted message: {Encoding.Default.GetString(encryptedMessage)} --- ");
         await socket.SendAsync(new ArraySegment<byte>(encryptedMessage), WebSocketMessageType.Binary, true, CancellationToken.None);
     }
 
