@@ -8,27 +8,29 @@ using System.Threading.Tasks;
 using System.Security.Cryptography;
 using Cryptography;
 using System.Threading.Channels;
+using Newtonsoft.Json;
 
 class Program
 {
     private static Dictionary<string, List<WebSocket>> channels = new();
     private static Dictionary<string, string> inviteKeys = new();
     private static Dictionary<WebSocket, string> userNames = new();
+    private static Dictionary<WebSocket, string> clientPublicKeys = new();
     private static Random random = new();
 
     static async Task Main()
     {
-        HttpListener listener = new HttpListener();
+        HttpListener listener = new();
         listener.Prefixes.Add("http://localhost:5000/");
         listener.Start();
         Console.WriteLine("Server started at ws://localhost:5000/");
 
         while (true)
         {
-            HttpListenerContext context = await listener.GetContextAsync();
+            var context = await listener.GetContextAsync();
             if (context.Request.IsWebSocketRequest)
             {
-                HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
+                var wsContext = await context.AcceptWebSocketAsync(null);
                 _ = HandleClient(wsContext.WebSocket);
             }
             else
@@ -41,144 +43,91 @@ class Program
 
     static async Task HandleClient(WebSocket socket)
     {
-        byte[] buffer = new byte[1024];
+        byte[] buffer = new byte[2048];
+        string? channelId = null;
 
         try
         {
-            // Receive username
-            WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            if (result.Count == 0)
-            {
-                Console.WriteLine("[Error] Empty message received.");
-                await socket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "Empty message", CancellationToken.None);
-                return;
-            }
+            // Receive public key and username
+            var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+            var base64PublicKey = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            clientPublicKeys[socket] = base64PublicKey;
 
-            byte[] encryptedData = buffer[..result.Count];
-
-            string decryptedUsername;
-            try
-            {
-                decryptedUsername = AesHelper.Decrypt(encryptedData);
-                Console.WriteLine($"[Decrypted Message] {decryptedUsername}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Error] Failed to decrypt message: {ex.Message}");
-                await socket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "Decryption error", CancellationToken.None);
-                return;
-            }
-
-            userNames[socket] = decryptedUsername;
-            Console.WriteLine($"[New Connection] Username assigned: {decryptedUsername}");
-
-            // Receive command (create or join)
             result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            if (result.Count == 0)
+            var username = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            userNames[socket] = username;
+            Console.WriteLine($"[New Connection] {username}");
+
+            // Receive command (create/join)
+            result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+            var command = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            if (command.StartsWith("create"))
             {
-                Console.WriteLine("[Error] Empty command received.");
-                await socket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "Empty command", CancellationToken.None);
-                return;
+                channelId = Guid.NewGuid().ToString();
+                var inviteKey = GenerateInviteKey();
+                channels[channelId] = new List<WebSocket> { socket };
+                inviteKeys[inviteKey] = channelId;
+                await SendPlainMessage(socket, $"[System] Channel created! Invite key: {inviteKey}");
             }
-
-            string command;
-            try
+            else if (command.StartsWith("join"))
             {
-                command = AesHelper.Decrypt(buffer[..result.Count]);
-                string channelId = "";
-
-                if (command.StartsWith("create"))
+                var parts = command.Split(' ');
+                if (parts.Length == 2 && inviteKeys.TryGetValue(parts[1], out channelId))
                 {
-                    channelId = Guid.NewGuid().ToString();
-                    string inviteKey = GenerateInviteKey();
-                    channels[channelId] = new List<WebSocket> { socket };
-                    inviteKeys[inviteKey] = channelId;
-                    await SendMessage(socket, $"\n[System] Channel created! Invite key: {inviteKey}\n");
-                }
-                else if (command.StartsWith("join"))
-                {
-                    string[] parts = command.Split(' ');
-                    if (parts.Length == 2 && inviteKeys.TryGetValue(parts[1], out channelId) && channels.ContainsKey(channelId))
-                    {
-                        channels[channelId].Add(socket);
-                        await SendMessage(socket, "\n[System] Joined channel! You can now chat.\n");
-                    }
-                    else
-                    {
-                        await SendMessage(socket, "[Error] Invalid invite key.");
-                        return;
-                    }
+                    channels[channelId].Add(socket);
+                    await SendPlainMessage(socket, "[System] Joined channel!");
                 }
                 else
                 {
-                    await SendMessage(socket, "[Error] Invalid command.");
+                    await SendPlainMessage(socket, "[Error] Invalid invite key");
                     return;
                 }
+            }
 
-                while (socket.State == WebSocketState.Open && channelId != null)
+            // Relay loop
+            while (socket.State == WebSocketState.Open)
+            {
+                result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                var encryptedData = buffer[..result.Count];
+
+                foreach (var client in channels[channelId!])
                 {
-                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                    if (result.MessageType == WebSocketMessageType.Binary)
+                    if (client != socket && client.State == WebSocketState.Open)
                     {
-                        byte[] encryptedMessage = buffer[..result.Count]; 
-                        string decryptedMessage = string.Empty;
-                        try
-                        {
-                            decryptedMessage = AesHelper.Decrypt(encryptedMessage); 
-                            Console.WriteLine($"[Decrypted] {decryptedMessage}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[Error] Failed to decrypt message: {ex.Message}");
-                            continue; 
-                        }
+                        //var buffer = new byte[1024];  // Adjust buffer size as needed
+                        //var result = await client.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                        //var data = buffer[..result.Count];
 
-                        string username = userNames[socket]; 
-                        string messageWithUsername = $"{username}: {decryptedMessage}";
+                        // Extract the encrypted key length (first 4 bytes)
+                        int keyLen = BitConverter.ToInt32(encryptedData, 0);
 
-                        Console.WriteLine($"[Channel {channelId}] {messageWithUsername}");
+                        // Extract the encrypted key (next `keyLen` bytes)
+                        byte[] encryptedKey = encryptedData[4..(4 + keyLen)];
 
-                        foreach (var client in channels[channelId])
-                        {
-                            if (client != socket && client.State == WebSocketState.Open)
-                            {
-                                await SendMessage(client, messageWithUsername); 
-                            }
-                        }
+                        // Extract the encrypted message (remaining bytes after the encrypted key)
+                        byte[] encryptedMessage = encryptedData[(4 + keyLen)..];
+
+                        // Relay the encrypted data to the recipient client
+                        await client.SendAsync(new ArraySegment<byte>(encryptedData), WebSocketMessageType.Binary, true, CancellationToken.None);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Error] Failed to decrypt command: {ex.Message}");
-                await socket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "Decryption error", CancellationToken.None);
-                return;
-            }
-
-            Console.WriteLine($"[Received Command] {command}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Fatal Error] {ex.Message}");
-            await socket.CloseAsync(WebSocketCloseStatus.InternalServerError, "Server error", CancellationToken.None);
+            Console.WriteLine($"[Error] {ex.Message}");
         }
     }
 
-    static async Task SendMessage(WebSocket socket, string message)
+    static async Task SendPlainMessage(WebSocket socket, string message)
     {
-        byte[] encryptedMessage = AesHelper.Encrypt(message);
-        Console.WriteLine($"--- Sending encrypted message: {Encoding.Default.GetString(encryptedMessage)} --- ");
-        await socket.SendAsync(new ArraySegment<byte>(encryptedMessage), WebSocketMessageType.Binary, true, CancellationToken.None);
+        byte[] data = Encoding.UTF8.GetBytes(message);
+        await socket.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
     static string GenerateInviteKey()
     {
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        char[] key = new char[6];
-        for (int i = 0; i < key.Length; i++)
-        {
-            key[i] = chars[random.Next(chars.Length)];
-        }
-        return new string(key);
+        return new string(Enumerable.Repeat(chars, 6).Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }

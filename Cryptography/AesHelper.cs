@@ -1,52 +1,44 @@
-﻿using System.Security.Cryptography;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 
-namespace Cryptography;
-
-public class AesHelper
+namespace Cryptography
 {
-    private static readonly byte[] Key = Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef"); // 32 bytes for AES-256
-
-    public static byte[] Encrypt(string plaintext)
+    // AesHelper for symmetric encryption
+    public static class AesHelper
     {
-        using (Aes aes = Aes.Create())
+        public static (byte[] cipherText, byte[] iv) Encrypt(string plainText, byte[] key)
         {
-            aes.Key = Key;
-            aes.GenerateIV(); // New IV for each message
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.GenerateIV();
 
-            using (MemoryStream ms = new MemoryStream())
-            {
-                // Write IV first
-                ms.Write(aes.IV, 0, aes.IV.Length);
+            using var encryptor = aes.CreateEncryptor();
+            using var ms = new MemoryStream();
+            using var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
+            using var sw = new StreamWriter(cs);
 
-                using (CryptoStream cs = new CryptoStream(ms, aes.CreateEncryptor(), CryptoStreamMode.Write))
-                using (StreamWriter writer = new StreamWriter(cs))
-                {
-                    writer.Write(plaintext);
-                }
+            sw.Write(plainText);
+            sw.Close();
 
-                return ms.ToArray(); // Returns IV + EncryptedData
-            }
+            return (ms.ToArray(), aes.IV);
         }
-    }
 
-    public static string Decrypt(byte[] encryptedData)
-    {
-        using (Aes aes = Aes.Create())
+        public static string Decrypt(byte[] cipherText, byte[] iv, byte[] key)
         {
-            aes.Key = Key;
-
-            // Extract IV (first 16 bytes)
-            byte[] iv = new byte[16];
-            Array.Copy(encryptedData, 0, iv, 0, 16);
+            using var aes = Aes.Create();
+            aes.Key = key;
             aes.IV = iv;
 
-            using (MemoryStream ms = new MemoryStream(encryptedData, 16, encryptedData.Length - 16))
-            using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Read))
-            using (StreamReader reader = new StreamReader(cs))
-            {
-                return reader.ReadToEnd();
-            }
+            using var decryptor = aes.CreateDecryptor();
+            using var ms = new MemoryStream(cipherText);
+            using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
+            using var sr = new StreamReader(cs);
+
+            return sr.ReadToEnd();
         }
     }
 }
