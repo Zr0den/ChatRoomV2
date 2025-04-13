@@ -22,7 +22,7 @@ namespace Cryptography
             using var encryptor = aes.CreateEncryptor();
             using var memoryStream = new MemoryStream();
             using (var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write))
-            using (var writer = new StreamWriter(cryptoStream))
+            using (var writer = new StreamWriter(cryptoStream, Encoding.UTF8))
             {
                 writer.Write(message);
             }
@@ -40,7 +40,7 @@ namespace Cryptography
             using var decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
             using var memoryStream = new MemoryStream(encryptedMessage);
             using var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read);
-            using var reader = new StreamReader(cryptoStream);
+            using var reader = new StreamReader(cryptoStream, Encoding.UTF8);
             return reader.ReadToEnd();
         }
     }

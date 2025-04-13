@@ -21,7 +21,7 @@ namespace WebSocketConsoleClient
         static async Task Main()
         {
             Random rnd = new Random();
-            username = $"User{rnd.Next(1000, 9999)}";
+            username = $"User{rnd.Next(1000, 999999)}";
 
             // Generate RSA keys and public key
             var publicKey = rsa.PublicKey;
@@ -109,10 +109,9 @@ namespace WebSocketConsoleClient
             byte[] aesKeyAndIv = aesKey.Concat(aesIV).ToArray();
             byte[] encryptedKey = RSAHelper.Encrypt(aesKeyAndIv, recipientPublicKey);
 
-            // Sign the plaintext message
+            // Sign the message
             byte[] signature = rsa.SignData(encryptedMessage);
 
-            // Send the encrypted message and encrypted key to the server
             var jsonMessage = new
             {
                 EncryptedKey = Convert.ToBase64String(encryptedKey),

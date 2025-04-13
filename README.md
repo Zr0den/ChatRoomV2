@@ -1,33 +1,41 @@
 ## Features
-Channel Creation: Users can create new chat channels.
-Invite Keys: When a channel is created, an invite key is generated, which can be shared with others to join the channel securely.
-Confidentiality and Integrity: All communications are encrypted using AES (Advanced Encryption Standard) and E2EE (End-to-End Encryption).
-Join Channels: Users can join existing channels by entering the correct invite key.
+CLI Messaging: Communicate with 1 other person/"yourself" by typing into a CLI.
 WebSockets: We use WebSockets for our communication.
 
 ## Usage
 1. Open the solution in Visual Studio
 2. Build and run the ChatRoomServer
-3. Run ChatRoomClient (Right click the project -> Debug -> Start new instance)
-4. Repeat step 3 as many times as you want - 1 instance = 1 user
-5. Follow the the instructions on the User CLI's (type stuff into it) - It will tell you when and how to do it all
-
+3. Run ChatRoomClient (Right click the project -> Debug -> Start new instance) twice (2x) times - or use dotnet run
+4. Type stuff into the CLI once 2 Clients are connected
 
 ## Security Features
-We use AES to encrypt our messages. 
-Our messages are encrypted before they are sent, and decrypted upon being received. This means that this is an implementation of E2EE.
-To decrypt a message, you need both the Key and the IV (Initialization Vector). IV's are unique and randomly generated on each encryption. 
-The IV is also part of the encryption process and is sent as part of the message in order to decrypt it on the other end.*
-Messages from and to the server are also encrypted, so that things like the invite key etc. can't be intercepted.
-This means that even if a message is intercepted between sender and receiver (or by the server), it is not possible to read its content.
-All in all, this in theory ensures Confidentiality (Only the intended recipients are able to read the messages).
-Integrity is mostly ensured by the decryption process failing should the cipher text be modified (we don't have any code making checks/handling this currently though)
+We use AES and RSA to encrypt our messages. 
+Our messaging system uses E2EE Encryption - Messages are encrypted before they are sent, and can only be decrypted on the other end by the intended recipient.
+We use Digital Signatures using RSA for authentication and to prevent impersonation
+Our full flow is as following:
+1. Each client generates an RSA Keypair on startup
+2. Upon joining a channel, clients send their public key to the server.
+3. The client's username is linked to the public key
+4. The server exchanges the Public Keys between connected Clients.
+5. Before sending a message, a random 256-bit AES key (sk) and IV is generated.
+6. The message is encrypted with AES-256 using sk and IV (ciphertext).
+7. sk is encrypted with the recipient's RSA public key (encKey).
+8. The encrypted message is signed with the sender's digital signature
+9. The encrypted message is sent as a structured JSON message to the server.
+10. The server verifies the digital signature of the message, and that the sender's username and public key match
+11. The server relays the message
+12. The recipient Client decrypts encKey using their private RSA key to get the AES Key (sk) and IV 
+13. The recipient Client decrypts ciphertext using sk and IV.
 
-* Har lige tænkt over, at vi på serveren egentlig også dekrypterer chat beskederne som brugerne sender til hinanden når de er tilsluttede, hvilket gør at det ikke rigtigt er E2EE,
-Men det er totalt unødvendigt at gøre (men vil alligevel tage lidt tid at ændre koden). Det er bare et af de "duh" moment man får efter man er blevet færdige med at implementere det, så ja. 
+All in all, this in theory ensures:
+A. Confidentiality (Only the intended recipient is able to read the messages - the Server only authenticates and relays messages) 
+	Even if a message is intercepted, since the private RSA Key is required for decryption, the message can not be deciphered. 
+	The server catches impersonation attempts by comparing public keys
+B. Integrity, since tampered messages will fail not only due to the Digital Signature, but also due to the decryption process returning a garbage result if the content of the message is not exactly as it was on encryption.
+	Because the signature is created using the randomly generated AES Key and IV, which can only be decrypted using the recipient's private RSA Key, tampering should not be possible.
 
-Remarks:
-Right now we just store our Key in plaintext in our "AesHelper" file, which is obviously not what you want to do in a serious situation, but we figured it was fine for demonstration purposes
-In theory, the IV's help mitigate it a little, as the Key alone is not enough, but obviously securing the key is just the primary concern here.
-There are also some ugly debug messages that show the encrypted message, just to show that it's there i guess
-Vi burde også have haft timestamps med for læsbarhed
+Remark:
+Regarding æ, ø og å: they become "?" not because of the encryption/decryption process, but because the console itself used in Visual Studio does not support those letters, even when using lines like.
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+And spending a lot of time trying to fix that/change to another console/something else, feels like it is out of the scope of what this assignment is meant for.

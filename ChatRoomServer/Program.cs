@@ -15,6 +15,7 @@ class Program
     private static List<WebSocket> channels = new();
     private static Dictionary<WebSocket, string> userNames = new();
     private static Dictionary<WebSocket, string> clientPublicKeys = new();
+    static Dictionary<string, string> usernameToPublicKey = new();
     public static int connectedClients = 0;
 
     static async Task Main()
@@ -53,6 +54,16 @@ class Program
 
             result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             var username = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            if (usernameToPublicKey.TryGetValue(username, out var existingKey))
+            {
+                if (existingKey != base64PublicKey)
+                {
+                    Console.WriteLine($"[Impersonation Attempt] {username} tried to connect with an unregistered public key!");
+                    await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Public key mismatch", CancellationToken.None);
+                    return;
+                }
+            }
+            usernameToPublicKey[username] = base64PublicKey;
             userNames[socket] = username;
             connectedClients++;
 
@@ -81,7 +92,7 @@ class Program
                 var jsonMessage = Encoding.UTF8.GetString(encryptedData);
                 var payload = JsonConvert.DeserializeObject<EncryptedPayload>(jsonMessage);
 
-                // Verify the signature first before relaying the message
+                // Verify the signature && Identity first before relaying the message
                 if (payload != null)
                 {
                     bool isValid = RSAHelper.VerifySignature(
@@ -89,6 +100,16 @@ class Program
                         Convert.FromBase64String(payload.Signature),
                         payload.SenderPublicKey
                     );
+
+                    if (userNames.TryGetValue(socket, out var senderUsername) &&
+                        usernameToPublicKey.TryGetValue(senderUsername, out var expectedPublicKey))
+                    {
+                        if (expectedPublicKey != payload.SenderPublicKey)
+                        {
+                            Console.WriteLine($"[Forgery Attempt] {senderUsername} tried to send a message with the wrong public key!");
+                            isValid = false;
+                        }
+                    }
 
                     if (isValid)
                     {
