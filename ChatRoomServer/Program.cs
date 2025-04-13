@@ -77,11 +77,33 @@ class Program
                 result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                 var encryptedData = buffer[..result.Count];
 
-                foreach (var client in channels)
+                // Deserialize encrypted message
+                var jsonMessage = Encoding.UTF8.GetString(encryptedData);
+                var payload = JsonConvert.DeserializeObject<EncryptedPayload>(jsonMessage);
+
+                // Verify the signature first before relaying the message
+                if (payload != null)
                 {
-                    if (client != socket && client.State == WebSocketState.Open)
+                    bool isValid = RSAHelper.VerifySignature(
+                        Convert.FromBase64String(payload.EncryptedMessage),
+                        Convert.FromBase64String(payload.Signature),
+                        payload.SenderPublicKey
+                    );
+
+                    if (isValid)
                     {
-                        await client.SendAsync(new ArraySegment<byte>(encryptedData), WebSocketMessageType.Binary, true, CancellationToken.None);
+                        // Relay the message to all other clients
+                        foreach (var client in channels)
+                        {
+                            if (client != socket && client.State == WebSocketState.Open)
+                            {
+                                await client.SendAsync(new ArraySegment<byte>(encryptedData), WebSocketMessageType.Binary, true, CancellationToken.None);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Warning: Invalid signature. Message discarded.");
                     }
                 }
             }

@@ -16,7 +16,7 @@ namespace WebSocketConsoleClient
     {
         public static RSAHelper rsa = new RSAHelper();
         private static string recipientPublicKey = string.Empty;  // Store the recipient's public key
-        private static string username;
+        private static string username = string.Empty;
 
         static async Task Main()
         {
@@ -78,20 +78,7 @@ namespace WebSocketConsoleClient
 
                             string decrypted = DecryptMessage(encryptedKey, encryptedMessage, rsa);
 
-                            bool isValid = RSAHelper.VerifySignature(
-                                Encoding.UTF8.GetBytes(decrypted),
-                                Convert.FromBase64String(payload.Signature),
-                                payload.SenderPublicKey
-                            );
-
-                            if (isValid)
-                            {
-                                Console.WriteLine($"\n{decrypted}\n");
-                            }
-                            else
-                            {
-                                Console.WriteLine($"WARNING: Tampered message received - {decrypted}");
-                            }
+                            Console.WriteLine($"\n{decrypted}\n");
                         }
                     }
                 }
@@ -123,7 +110,7 @@ namespace WebSocketConsoleClient
             byte[] encryptedKey = RSAHelper.Encrypt(aesKeyAndIv, recipientPublicKey);
 
             // Sign the plaintext message
-            byte[] signature = rsa.SignData(Encoding.UTF8.GetBytes(message));
+            byte[] signature = rsa.SignData(encryptedMessage);
 
             // Send the encrypted message and encrypted key to the server
             var jsonMessage = new
