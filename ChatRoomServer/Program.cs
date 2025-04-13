@@ -69,17 +69,6 @@ class Program
                 Console.WriteLine($"[Channel Joined] {username}");
 
                 await ExchangePublicKeys(socket);
-                //foreach (var client in channels)
-                //{
-                //    if (client != socket && client.State == WebSocketState.Open)
-                //    {
-                //        string recipientPublicKey = clientPublicKeys[client];
-                //        await SendPlainMessage(socket, $"PK:{recipientPublicKey}");
-
-                //        string newClientPublicKey = clientPublicKeys[socket];
-                //        await SendPlainMessage(client, $"PK:{newClientPublicKey}");
-                //    }
-                //}
             }
 
             // Relay loop

@@ -11,5 +11,7 @@ namespace Cryptography
         public string EncryptedKey { get; set; }
         public string EncryptedMessage { get; set; }
         public string IV { get; set; }
+        public string Signature { get; set; }
+        public string SenderPublicKey { get; set; }
     }
 }
