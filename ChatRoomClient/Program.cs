@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,60 +15,34 @@ namespace WebSocketConsoleClient
     class Program
     {
         public static RSAHelper rsa = new RSAHelper();
-        public static string recipientPublicKey = "TODO";
+        private static string recipientPublicKey = string.Empty;  // Store the recipient's public key
 
         static async Task Main()
         {
-            Console.Write("Enter your username: ");
-            var username = Console.ReadLine();
+            Random rnd = new Random();
+            var username = $"User{rnd.Next(1000, 9999)}";
 
             // Generate RSA keys and public key
             var publicKey = rsa.PublicKey;
 
             using var socket = new ClientWebSocket();
             await socket.ConnectAsync(new Uri("ws://localhost:5000/"), CancellationToken.None);
-            Console.WriteLine("Connected to server.");
+            Console.WriteLine("Connected to server. Hello " + username + ", you may now type");
+
+            // Receive messages in the background
+            _ = Task.Run(() => ReceiveMessages(socket));
 
             // Send public key and username to server
             await SendRaw(socket, publicKey);
             await SendRaw(socket, username);
 
-            // Wait for server response and handle command input
-            Console.WriteLine("Type 'create' or 'join <inviteKey>':");
-            var command = Console.ReadLine();
-            await SendRaw(socket, command);
-
-            // Receive messages in the background
-            _ = Task.Run(() => ReceiveMessages(socket));
-
-            while ((socket.State == WebSocketState.Open))
+            while (socket.State == WebSocketState.Open)
             {
                 var message = Console.ReadLine();
                 if (string.IsNullOrWhiteSpace(message)) continue;
 
-                // Encrypt message with AES
-                using var aes = Aes.Create();
-                var (encryptedMessage, iv) = AesHelper.Encrypt(message, aes.Key);
-
-                // Encrypt AES key and IV with recipient's RSA public key
-                byte[] aesKeyAndIv = aes.Key.Concat(aes.IV).ToArray();
-                var encryptedKey = RSAHelper.Encrypt(aesKeyAndIv, recipientPublicKey);  // Encrypted AES key
-
-                // Create the packet to send (encrypted key length + encrypted key + encrypted message)
-                var packet = new List<byte>();
-                packet.AddRange(BitConverter.GetBytes(encryptedKey.Length));  // 4-byte length of encrypted key
-                packet.AddRange(encryptedKey);  // Encrypted AES key
-                packet.AddRange(encryptedMessage);  // Encrypted message
-
-                // Send the packet to the server
-                await socket.SendAsync(new ArraySegment<byte>(packet.ToArray()), WebSocketMessageType.Binary, true, CancellationToken.None);
+                SendMessage(message, recipientPublicKey, socket);
             }
-        }
-
-        static async Task SendRaw(ClientWebSocket socket, string data)
-        {
-            var bytes = Encoding.UTF8.GetBytes(data);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, CancellationToken.None);
         }
 
         static async Task ReceiveMessages(ClientWebSocket socket)
@@ -84,30 +59,26 @@ namespace WebSocketConsoleClient
                     {
                         string message = Encoding.UTF8.GetString(data);
                         Console.WriteLine($"[Server]: {message}");
+                        if (message.Substring(0, 3) == "PK:")
+                        {
+                            recipientPublicKey = message.Substring(3);
+                        }
                     }
                     else if (result.MessageType == WebSocketMessageType.Binary)
                     {
-                        // Extract the encrypted key length (first 4 bytes)
-                        int keyLen = BitConverter.ToInt32(data, 0);
+                        string json = Encoding.UTF8.GetString(data);
+                        var payload = JsonConvert.DeserializeObject<EncryptedPayload>(json);
 
-                        // Extract the encrypted key (next `keyLen` bytes)
-                        byte[] encryptedKey = data[4..(4 + keyLen)];
+                        if (payload != null)
+                        {
+                            byte[] encryptedKey = Convert.FromBase64String(payload.EncryptedKey);
+                            byte[] encryptedMessage = Convert.FromBase64String(payload.EncryptedMessage);
+                            byte[] aesIV = Convert.FromBase64String(payload.IV);
 
-                        // Extract the encrypted message (remaining bytes after the encrypted key)
-                        byte[] encryptedMessage = data[(4 + keyLen)..];
+                            string decrypted = DecryptMessage(encryptedKey, encryptedMessage, rsa);
 
-                        // Decrypt the AES key using recipient's RSA private key
-                        byte[] aesKeyAndIv = RSAHelper.Decrypt(encryptedKey, recipientPrivateKey);  // Decrypt with RSA private key
-
-                        // Extract the AES key and IV from the decrypted data (first 32 bytes for AES key, next 16 bytes for IV)
-                        byte[] aesKey = aesKeyAndIv[..32];  // 256-bit AES key
-                        byte[] iv = aesKeyAndIv[32..48];   // 128-bit IV
-
-                        // Decrypt the message using AES
-                        string decryptedMessage = AesHelper.Decrypt(encryptedMessage, iv, aesKey);
-
-                        // Do something with the decrypted message, e.g., display it
-                        Console.WriteLine($"Decrypted message: {decryptedMessage}");
+                            Console.WriteLine($"\n[Decrypted message received]: {decrypted}\n");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -115,6 +86,46 @@ namespace WebSocketConsoleClient
                     Console.WriteLine($"[Error] Failed to decrypt: {ex.Message}");
                 }
             }
+        }
+
+        public static string DecryptMessage(byte[] encryptedKey, byte[] encryptedMessage, RSAHelper rsaHelper)
+        {
+            // Decrypt the AES key and IV with the private RSA key
+            byte[] aesKeyAndIv = rsaHelper.DecryptRaw(encryptedKey);
+            byte[] aesKey = aesKeyAndIv.Take(32).ToArray(); // 256-bit AES key
+            byte[] aesIV = aesKeyAndIv.Skip(32).Take(16).ToArray(); // 128-bit AES IV
+
+            // Decrypt the message using AES
+            return AesHelper.Decrypt(encryptedMessage, aesKey, aesIV);
+        }
+
+        public static async void SendMessage(string message, string recipientPublicKey, ClientWebSocket socket)
+        {
+            // Encrypt the message with AES
+            (byte[] encryptedMessage, byte[] aesIV, byte[] aesKey) = AesHelper.Encrypt(message);
+
+            // Encrypt the AES key and IV with the recipient's RSA public key
+            byte[] aesKeyAndIv = aesKey.Concat(aesIV).ToArray();
+            byte[] encryptedKey = RSAHelper.Encrypt(aesKeyAndIv, recipientPublicKey);
+
+            // Send the encrypted message and encrypted key to the server
+            var jsonMessage = new
+            {
+                EncryptedKey = Convert.ToBase64String(encryptedKey),
+                EncryptedMessage = Convert.ToBase64String(encryptedMessage),
+                IV = Convert.ToBase64String(aesIV)
+            };
+
+            await SendRaw(socket, JsonConvert.SerializeObject(jsonMessage));
+            Console.WriteLine("Message Sent: ");
+            Console.WriteLine($"Encrypted Message: {Convert.ToBase64String(encryptedMessage)}");
+            Console.WriteLine($"Encrypted AES Key: {Convert.ToBase64String(encryptedKey)}");
+        }
+
+        static async Task SendRaw(ClientWebSocket socket, string data)
+        {
+            var bytes = Encoding.UTF8.GetBytes(data);
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, CancellationToken.None);
         }
     }
 }

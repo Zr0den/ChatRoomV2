@@ -12,11 +12,11 @@ using Newtonsoft.Json;
 
 class Program
 {
-    private static Dictionary<string, List<WebSocket>> channels = new();
-    private static Dictionary<string, string> inviteKeys = new();
+    private static List<WebSocket> channels = new();
     private static Dictionary<WebSocket, string> userNames = new();
     private static Dictionary<WebSocket, string> clientPublicKeys = new();
     private static Random random = new();
+    public static int connectedClients = 0;
 
     static async Task Main()
     {
@@ -44,7 +44,6 @@ class Program
     static async Task HandleClient(WebSocket socket)
     {
         byte[] buffer = new byte[2048];
-        string? channelId = null;
 
         try
         {
@@ -56,31 +55,27 @@ class Program
             result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             var username = Encoding.UTF8.GetString(buffer, 0, result.Count);
             userNames[socket] = username;
+            connectedClients++;
             Console.WriteLine($"[New Connection] {username}");
 
-            // Receive command (create/join)
-            result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            var command = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            if (command.StartsWith("create"))
+            if (connectedClients == 1)
             {
-                channelId = Guid.NewGuid().ToString();
-                var inviteKey = GenerateInviteKey();
-                channels[channelId] = new List<WebSocket> { socket };
-                inviteKeys[inviteKey] = channelId;
-                await SendPlainMessage(socket, $"[System] Channel created! Invite key: {inviteKey}");
+                channels = new List<WebSocket> { socket };
+                Console.WriteLine($"[Channel Created] {username}");
             }
-            else if (command.StartsWith("join"))
+            else 
             {
-                var parts = command.Split(' ');
-                if (parts.Length == 2 && inviteKeys.TryGetValue(parts[1], out channelId))
+                channels.Add(socket);
+                Console.WriteLine($"[Channel Joined] {username}");
+
+                foreach (var client in channels)
                 {
-                    channels[channelId].Add(socket);
-                    await SendPlainMessage(socket, "[System] Joined channel!");
-                }
-                else
-                {
-                    await SendPlainMessage(socket, "[Error] Invalid invite key");
-                    return;
+                    if (client != socket && client.State == WebSocketState.Open)
+                    {
+                        //Broadcast the public keys
+                        string recipientPublicKey = clientPublicKeys[client];
+                        await SendPlainMessage(socket, $"PK:{recipientPublicKey}");
+                    }
                 }
             }
 
@@ -90,24 +85,12 @@ class Program
                 result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                 var encryptedData = buffer[..result.Count];
 
-                foreach (var client in channels[channelId!])
+                // Broadcast to all clients except the sender
+                foreach (var client in channels)
                 {
                     if (client != socket && client.State == WebSocketState.Open)
                     {
-                        //var buffer = new byte[1024];  // Adjust buffer size as needed
-                        //var result = await client.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                        //var data = buffer[..result.Count];
-
-                        // Extract the encrypted key length (first 4 bytes)
-                        int keyLen = BitConverter.ToInt32(encryptedData, 0);
-
-                        // Extract the encrypted key (next `keyLen` bytes)
-                        byte[] encryptedKey = encryptedData[4..(4 + keyLen)];
-
-                        // Extract the encrypted message (remaining bytes after the encrypted key)
-                        byte[] encryptedMessage = encryptedData[(4 + keyLen)..];
-
-                        // Relay the encrypted data to the recipient client
+                        // Send the encrypted data to the recipient
                         await client.SendAsync(new ArraySegment<byte>(encryptedData), WebSocketMessageType.Binary, true, CancellationToken.None);
                     }
                 }
@@ -123,11 +106,5 @@ class Program
     {
         byte[] data = Encoding.UTF8.GetBytes(message);
         await socket.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
-    }
-
-    static string GenerateInviteKey()
-    {
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        return new string(Enumerable.Repeat(chars, 6).Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }

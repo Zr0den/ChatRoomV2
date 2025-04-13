@@ -28,11 +28,6 @@ namespace Cryptography
             return rsa.Encrypt(data, RSAEncryptionPadding.OaepSHA256);
         }
 
-        public string Decrypt(byte[] cipherText)
-        {
-            return Encoding.UTF8.GetString(_rsa.Decrypt(cipherText, RSAEncryptionPadding.OaepSHA256));
-        }
-
         public byte[] DecryptRaw(byte[] cipherText)
         {
             return _rsa.Decrypt(cipherText, RSAEncryptionPadding.OaepSHA256);

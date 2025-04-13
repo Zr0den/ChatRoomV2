@@ -10,35 +10,38 @@ namespace Cryptography
     // AesHelper for symmetric encryption
     public static class AesHelper
     {
-        public static (byte[] cipherText, byte[] iv) Encrypt(string plainText, byte[] key)
+        public static (byte[] encryptedMessage, byte[] iv, byte[] key) Encrypt(string message)
         {
+            //Generate random 256-bit AES key (sk) and IV.
             using var aes = Aes.Create();
-            aes.Key = key;
+            aes.KeySize = 256;
+            aes.GenerateKey();
             aes.GenerateIV();
+            aes.Mode = CipherMode.CBC;
 
             using var encryptor = aes.CreateEncryptor();
-            using var ms = new MemoryStream();
-            using var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
-            using var sw = new StreamWriter(cs);
+            using var memoryStream = new MemoryStream();
+            using (var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write))
+            using (var writer = new StreamWriter(cryptoStream))
+            {
+                writer.Write(message);
+            }
 
-            sw.Write(plainText);
-            sw.Close();
-
-            return (ms.ToArray(), aes.IV);
+            return (memoryStream.ToArray(), aes.IV, aes.Key);
         }
 
-        public static string Decrypt(byte[] cipherText, byte[] iv, byte[] key)
+        public static string Decrypt(byte[] encryptedMessage, byte[] key, byte[] iv)
         {
             using var aes = Aes.Create();
             aes.Key = key;
             aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
 
-            using var decryptor = aes.CreateDecryptor();
-            using var ms = new MemoryStream(cipherText);
-            using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
-            using var sr = new StreamReader(cs);
-
-            return sr.ReadToEnd();
+            using var decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+            using var memoryStream = new MemoryStream(encryptedMessage);
+            using var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read);
+            using var reader = new StreamReader(cryptoStream);
+            return reader.ReadToEnd();
         }
     }
 }
