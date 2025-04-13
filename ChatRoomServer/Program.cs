@@ -15,7 +15,6 @@ class Program
     private static List<WebSocket> channels = new();
     private static Dictionary<WebSocket, string> userNames = new();
     private static Dictionary<WebSocket, string> clientPublicKeys = new();
-    private static Random random = new();
     public static int connectedClients = 0;
 
     static async Task Main()
@@ -56,27 +55,31 @@ class Program
             var username = Encoding.UTF8.GetString(buffer, 0, result.Count);
             userNames[socket] = username;
             connectedClients++;
-            Console.WriteLine($"[New Connection] {username}");
+
+            Console.WriteLine($"[New Connection] {username}. Current connections: {connectedClients}");
 
             if (connectedClients == 1)
             {
                 channels = new List<WebSocket> { socket };
                 Console.WriteLine($"[Channel Created] {username}");
             }
-            else 
+            else
             {
                 channels.Add(socket);
                 Console.WriteLine($"[Channel Joined] {username}");
 
-                foreach (var client in channels)
-                {
-                    if (client != socket && client.State == WebSocketState.Open)
-                    {
-                        //Broadcast the public keys
-                        string recipientPublicKey = clientPublicKeys[client];
-                        await SendPlainMessage(socket, $"PK:{recipientPublicKey}");
-                    }
-                }
+                await ExchangePublicKeys(socket);
+                //foreach (var client in channels)
+                //{
+                //    if (client != socket && client.State == WebSocketState.Open)
+                //    {
+                //        string recipientPublicKey = clientPublicKeys[client];
+                //        await SendPlainMessage(socket, $"PK:{recipientPublicKey}");
+
+                //        string newClientPublicKey = clientPublicKeys[socket];
+                //        await SendPlainMessage(client, $"PK:{newClientPublicKey}");
+                //    }
+                //}
             }
 
             // Relay loop
@@ -85,12 +88,10 @@ class Program
                 result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                 var encryptedData = buffer[..result.Count];
 
-                // Broadcast to all clients except the sender
                 foreach (var client in channels)
                 {
                     if (client != socket && client.State == WebSocketState.Open)
                     {
-                        // Send the encrypted data to the recipient
                         await client.SendAsync(new ArraySegment<byte>(encryptedData), WebSocketMessageType.Binary, true, CancellationToken.None);
                     }
                 }
@@ -100,11 +101,43 @@ class Program
         {
             Console.WriteLine($"[Error] {ex.Message}");
         }
+        finally
+        {
+            if (socket.State != WebSocketState.Open)
+            {
+                channels.Remove(socket);
+                userNames.Remove(socket);
+                clientPublicKeys.Remove(socket);
+                connectedClients--;
+                Console.WriteLine($"[Disconnected] A user left. Clients left: {connectedClients}");
+            }
+        }
     }
 
     static async Task SendPlainMessage(WebSocket socket, string message)
     {
         byte[] data = Encoding.UTF8.GetBytes(message);
         await socket.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
+    }
+
+    private static async Task ExchangePublicKeys(WebSocket newClient)
+    {
+        if (!clientPublicKeys.TryGetValue(newClient, out var newClientPublicKey))
+            return;
+
+        foreach (var existingClient in channels)
+        {
+            if (existingClient != newClient && existingClient.State == WebSocketState.Open)
+            {
+                // Send existing client's key to the new client
+                if (clientPublicKeys.TryGetValue(existingClient, out var existingClientPublicKey))
+                {
+                    await SendPlainMessage(newClient, $"PK:{existingClientPublicKey}");
+                }
+
+                // Send new client's key to the existing client
+                await SendPlainMessage(existingClient, $"PK:{newClientPublicKey}");
+            }
+        }
     }
 }

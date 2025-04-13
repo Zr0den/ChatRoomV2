@@ -16,11 +16,12 @@ namespace WebSocketConsoleClient
     {
         public static RSAHelper rsa = new RSAHelper();
         private static string recipientPublicKey = string.Empty;  // Store the recipient's public key
+        private static string username;
 
         static async Task Main()
         {
             Random rnd = new Random();
-            var username = $"User{rnd.Next(1000, 9999)}";
+            username = $"User{rnd.Next(1000, 9999)}";
 
             // Generate RSA keys and public key
             var publicKey = rsa.PublicKey;
@@ -41,6 +42,7 @@ namespace WebSocketConsoleClient
                 var message = Console.ReadLine();
                 if (string.IsNullOrWhiteSpace(message)) continue;
 
+                message = $"{username}: " + message;
                 SendMessage(message, recipientPublicKey, socket);
             }
         }
@@ -58,7 +60,6 @@ namespace WebSocketConsoleClient
                     if (result.MessageType == WebSocketMessageType.Text)
                     {
                         string message = Encoding.UTF8.GetString(data);
-                        Console.WriteLine($"[Server]: {message}");
                         if (message.Substring(0, 3) == "PK:")
                         {
                             recipientPublicKey = message.Substring(3);
@@ -77,7 +78,7 @@ namespace WebSocketConsoleClient
 
                             string decrypted = DecryptMessage(encryptedKey, encryptedMessage, rsa);
 
-                            Console.WriteLine($"\n[Decrypted message received]: {decrypted}\n");
+                            Console.WriteLine($"\n{decrypted}\n");
                         }
                     }
                 }
@@ -117,9 +118,6 @@ namespace WebSocketConsoleClient
             };
 
             await SendRaw(socket, JsonConvert.SerializeObject(jsonMessage));
-            Console.WriteLine("Message Sent: ");
-            Console.WriteLine($"Encrypted Message: {Convert.ToBase64String(encryptedMessage)}");
-            Console.WriteLine($"Encrypted AES Key: {Convert.ToBase64String(encryptedKey)}");
         }
 
         static async Task SendRaw(ClientWebSocket socket, string data)
